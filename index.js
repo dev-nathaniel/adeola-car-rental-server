@@ -69,6 +69,7 @@ app.post('/login', async(req,res)=> {
             })
             .on('end', async () => {
                 console.log(user, 'end')
+                console.log(user.email.length)
                 if (user.email.length > 0) { 
                     console.log(user.email)  
                     // console.log(found)  
