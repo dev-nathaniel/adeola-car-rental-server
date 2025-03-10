@@ -85,6 +85,9 @@ app.post('/login', async(req,res)=> {
                         return res.status(401).json({error: 'Wrong credentials'})
                     }               
                     // res.status(400).json({error: 'Wrong credentials'})
+                } else {
+                    console.log("Invalid email or password.")
+                    return res.status(401).json({error: 'Wrong credentials'})
                 }
             })
     } catch (error) {
