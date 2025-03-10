@@ -55,7 +55,7 @@ app.post('/login', async(req,res)=> {
         password: ''
     }
     try {
-        fs.createReadStream(FILE_PATH)
+        const stream = fs.createReadStream(FILE_PATH)
             .pipe(csvParser())
             .on("data", async (row) => {
                 if (row.email === email) {
@@ -63,6 +63,7 @@ app.post('/login', async(req,res)=> {
                     user.password = row.password
                     user.firstName = row.firstname
                     user.lastName = row.lastname
+                    stream.destroy()
                 }
             })
             .on('end', async () => {
