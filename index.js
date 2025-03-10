@@ -64,7 +64,7 @@ app.post('/login', async(req,res)=> {
                     user.firstName = row.firstname
                     user.lastName = row.lastname
                     console.log(user)
-                    stream.destroy()
+                    // stream.destroy()
                 }
             })
             .on('end', async () => {
