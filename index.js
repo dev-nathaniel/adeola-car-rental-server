@@ -19,6 +19,7 @@ app.use(bodyparser.json())
 app.use(cors())
 
 app.post('/register', async (req, res) => {
+    console.log('i was called, register')
     const {firstName, lastName, email, password} =req.body
 
     const saltRounds = 10;
@@ -44,6 +45,7 @@ app.post('/register', async (req, res) => {
 })
 
 app.post('/login', async(req,res)=> {
+    console.log('i was called, login')
     const {email, password} = req.body
     let found = false
     const user = {
