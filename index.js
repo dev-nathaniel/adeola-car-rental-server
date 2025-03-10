@@ -69,7 +69,8 @@ app.post('/login', async(req,res)=> {
             })
             .on('end', async () => {
                 console.log(user, 'end')
-                if (user.email.length > 0) {   
+                if (user.email.length > 0) { 
+                    console.log(user.email)  
                     // console.log(found)  
                     const result = await bcrypt.compare(password, user.password)
                     if (result) {
@@ -77,17 +78,17 @@ app.post('/login', async(req,res)=> {
                         // console.log(found)
                         console.log("Login successful!")
                         const {password, ...others} = user
-                        res.status(200).json({...others})
+                        return res.status(200).json({...others})
                     } else {
                         console.log("Invalid email or password.")
-                        res.status(401).json({error: 'Wrong credentials'})
+                        return res.status(401).json({error: 'Wrong credentials'})
                     }               
                     // res.status(400).json({error: 'Wrong credentials'})
                 }
             })
     } catch (error) {
         console.log(error)
-        res.status(500).json(error)
+        return res.status(500).json(error)
     }
 })
 
