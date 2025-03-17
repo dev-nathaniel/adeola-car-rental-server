@@ -6,11 +6,13 @@ const fs = require('fs')
 const path = require('path')
 const csvParser = require('csv-parser')
 const bcrypt = require('bcrypt')
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto")
 
 const FILE_PATH = path.join(__dirname, "users.csv")
 
 if (!fs.existsSync(FILE_PATH)) {
-    fs.writeFileSync(FILE_PATH, "firstname,lastname,email,password\n")
+    fs.writeFileSync(FILE_PATH, "firstName,lastName,email,password,isVerified,verificationToken\n")
 }
 require('dotenv').config()
 
@@ -18,9 +20,59 @@ const app = express()
 app.use(bodyparser.json())
 app.use(cors())
 
+// The transporter auth does not necessarily have to be the same as the 'from' in mailOptions.
+  // However, in this case, we are using Gmail as the service, and Gmail requires the 'from' field to match the authenticated user.
+  // This is a security feature to prevent email spoofing.
+  let transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'adebayoolowofoyeku@gmail.com',
+      pass: process.env.THING
+    }
+  });
+const SECRET_KEY = process.env.JWT_SECRET
+
+const sendEmail = (name, email, verificationLink) => {  
+    
+  
+    let mailOptions = {
+      from: '"No reply" <adebayoolowofoyeku@gmail.com>',
+      to: email,
+    //   replyTo: email, // Added replyTo field to allow the recipient to reply directly to the sender
+      subject: 'EMAIL VERIFICATION',
+      headers: {
+        'Importance': 'high',
+        'X-Priority': '1'
+      },
+      html: `
+        <div style="background-color: #f0f0f0; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);">
+          <h1 style="color: #333; font-weight: bold; margin-top: 0;">Verify Your Email</h1>
+          <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
+          <p style="font-size: 16px; margin-bottom: 20px;">To complete your registration with Adeola's Car Rental, please verify your email address by clicking the link below:</p>
+          <a href="${verificationLink}" style="background-color: #333; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 20px;">Verify Email</a>
+          <p style="font-size: 16px; margin-top: 20px;">If you have any questions or concerns, please don't hesitate to reach out to us.</p>
+          <p style="font-size: 16px;">Best regards,</p>
+          <p style="font-size: 16px;">Adeola's Car Rental Team</p>
+        </div>
+      `
+    };
+  
+    transporter.sendMail(mailOptions, (error, info) => {
+      if (error) {
+        console.log(error);
+        res.status(500).send('Error sending email');
+      } else {
+        console.log('Email sent: ' + info.response);
+        res.status(200).send('Email sent successfully');
+      }
+    });
+  };
+  
+
 app.post('/register', async (req, res) => {
     console.log('i was called, register')
     const {firstName, lastName, email, password} =req.body
+    const verificationToken = crypto.randomBytes(32).toString('hex')
 
     const saltRounds = 10;
     try {
@@ -35,9 +87,11 @@ app.post('/register', async (req, res) => {
                 }
             })
             .on('end', () => {
-                fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword}\n`)
+                fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken}\n`)
                 console.log("Signup successful!")
-                return res.status(201).json({firstName, lastName, email})
+                const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}`
+                sendEmail(firstName, email, verificationLink)
+                return res.status(201).json({firstName, lastName, email, verificationToken})
             })
     } catch(err) {
         return res.status(500).json(err)
@@ -61,8 +115,8 @@ app.post('/login', async(req,res)=> {
                 if (row.email === email) {
                     user.email = row.email
                     user.password = row.password
-                    user.firstName = row.firstname
-                    user.lastName = row.lastname
+                    user.firstName = row.firstName
+                    user.lastName = row.lastName
                     // console.log(user)
                     // stream.destroy()
                 }
@@ -78,8 +132,9 @@ app.post('/login', async(req,res)=> {
                         // found = true
                         // console.log(found)
                         console.log("Login successful!")
+                        const token = jwt.sign(user.email, SECRET_KEY, {expiresIn: '1h'})
                         const {password, ...others} = user
-                        return res.status(200).json({...others})
+                        return res.status(200).json({...others, token})
                     } else {
                         console.log("Invalid email or password.")
                         return res.status(401).json({error: 'Wrong credentials'})
@@ -96,6 +151,17 @@ app.post('/login', async(req,res)=> {
     }
 })
 
+// Middleware to verify JWT
+const verifyToken = (req, res, next) => {
+    const token = req.headers["authorization"];
+    if (!token) return res.status(403).json({ error: "No token provided" });
+
+    jwt.verify(token.split(" ")[1], SECRET_KEY, (err, decoded) => {
+        if (err) return res.status(401).json({ error: "Unauthorized" });
+        next();
+    });
+};
+
 app.get('/', (req,res) => {
     res.send('testingggg')
 })
@@ -104,4 +170,12 @@ const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`)
+})
+
+transporter.verify(function (error, success) {
+    if (error) {
+        console.log(error);
+    } else {
+        console.log("Server is ready to take messages")
+    }
 })
