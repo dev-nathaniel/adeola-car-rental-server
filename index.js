@@ -132,7 +132,7 @@ app.post('/login', async(req,res)=> {
                         // found = true
                         // console.log(found)
                         console.log("Login successful!")
-                        const token = jwt.sign(user.email, SECRET_KEY, {expiresIn: '1h'})
+                        const token = jwt.sign({email}, SECRET_KEY, {expiresIn: '1h'})
                         const {password, ...others} = user
                         return res.status(200).json({...others, token})
                     } else {
@@ -165,24 +165,27 @@ const verifyToken = (req, res, next) => {
 app.post('/verifyemail', async (req, res) => {
     try {
         const { email, verificationToken } = req.body;
+        // console.log(email, verificationToken)
         let user = {};
 
         fs.createReadStream(FILE_PATH)
-            .pipe(csv())
+            .pipe(csvParser())
             .on('data', (row) => {
                 if (row.email === email && row.isVerified === 'null') {
                     user = row;
                 }
             })
             .on('end', () => {
+                console.log(user)
                 if (Object.keys(user).length > 0 && user.verificationToken === verificationToken) {
+                    console.log(true)
                     user.isVerified = 'true';
                     // Assuming there's a function to update the CSV file
                     updateCSV(FILE_PATH, user);
                     // res.status(200).json({ message: 'Email verified successfully' });
                     // Log the user in after verification
-                    const token = jwt.sign(user.email, SECRET_KEY, {expiresIn: '1h'});
-                    const {password, ...others} = user;
+                    const token = jwt.sign({email}, SECRET_KEY, {expiresIn: '1h'});
+                    const {password, verificationToken, ...others} = user;
                     return res.status(200).json({...others, token});
                 } else {
                     res.status(401).json({ error: 'Invalid verification token or email not found' });
