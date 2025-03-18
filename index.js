@@ -158,9 +158,16 @@ const verifyToken = (req, res, next) => {
 
     jwt.verify(token.split(" ")[1], SECRET_KEY, (err, decoded) => {
         if (err) return res.status(401).json({ error: "Unauthorized" });
+        req.user = decoded; // Store the decoded token in the request object
         next();
     });
 };
+
+// Endpoint to verify token
+app.get('/verifytoken', verifyToken, (req, res) => {
+    // If the token is valid, this code will execute
+    return res.status(200).json({ message: 'Token is valid', user: req.user });
+});
 
 app.post('/verifyemail', async (req, res) => {
     try {
