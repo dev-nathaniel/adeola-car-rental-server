@@ -176,7 +176,7 @@ app.post('/verifyemail', async (req, res) => {
                 }
             })
             .on('end', () => {
-                console.log(user)
+                // console.log(user)
                 if (Object.keys(user).length > 0 && user.verificationToken === verificationToken) {
                     console.log(true)
                     user.isVerified = 'true';
@@ -186,7 +186,7 @@ app.post('/verifyemail', async (req, res) => {
                     // Log the user in after verification
                     const token = jwt.sign({email}, SECRET_KEY, {expiresIn: '1h'});
                     const {password, verificationToken, ...others} = user;
-                    return res.status(200).json({...others, token});
+                    return res.status(200).json({userDetails: others, token});
                 } else {
                     res.status(401).json({ error: 'Invalid verification token or email not found' });
                 }
