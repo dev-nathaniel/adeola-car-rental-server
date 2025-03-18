@@ -12,7 +12,7 @@ const crypto = require("crypto")
 const FILE_PATH = path.join(__dirname, "users.csv")
 
 if (!fs.existsSync(FILE_PATH)) {
-    fs.writeFileSync(FILE_PATH, "firstName,lastName,email,password,isVerified,verificationToken\n")
+    fs.writeFileSync(FILE_PATH, "firstName,lastName,email,password,isVerified,verificationToken,loginAttempts,locked\n")
 }
 require('dotenv').config()
 
@@ -21,30 +21,30 @@ app.use(bodyparser.json())
 app.use(cors())
 
 // The transporter auth does not necessarily have to be the same as the 'from' in mailOptions.
-  // However, in this case, we are using Gmail as the service, and Gmail requires the 'from' field to match the authenticated user.
-  // This is a security feature to prevent email spoofing.
-  let transporter = nodemailer.createTransport({
+// However, in this case, we are using Gmail as the service, and Gmail requires the 'from' field to match the authenticated user.
+// This is a security feature to prevent email spoofing.
+let transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: 'adebayoolowofoyeku@gmail.com',
-      pass: process.env.THING
+        user: 'adebayoolowofoyeku@gmail.com',
+        pass: process.env.THING
     }
-  });
+});
 const SECRET_KEY = process.env.JWT_SECRET
 
-const sendEmail = (name, email, verificationLink) => {  
-    
-  
+const sendEmail = (name, email, verificationLink) => {
+
+
     let mailOptions = {
-      from: '"No reply" <adebayoolowofoyeku@gmail.com>',
-      to: email,
-    //   replyTo: email, // Added replyTo field to allow the recipient to reply directly to the sender
-      subject: 'EMAIL VERIFICATION',
-      headers: {
-        'Importance': 'high',
-        'X-Priority': '1'
-      },
-      html: `
+        from: '"No reply" <adebayoolowofoyeku@gmail.com>',
+        to: email,
+        //   replyTo: email, // Added replyTo field to allow the recipient to reply directly to the sender
+        subject: 'EMAIL VERIFICATION',
+        headers: {
+            'Importance': 'high',
+            'X-Priority': '1'
+        },
+        html: `
         <div style="background-color: #f0f0f0; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);">
           <h1 style="color: #333; font-weight: bold; margin-top: 0;">Verify Your Email</h1>
           <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
@@ -56,22 +56,22 @@ const sendEmail = (name, email, verificationLink) => {
         </div>
       `
     };
-  
+
     transporter.sendMail(mailOptions, (error, info) => {
-      if (error) {
-        console.log(error);
-        res.status(500).send('Error sending email');
-      } else {
-        console.log('Email sent: ' + info.response);
-        res.status(200).send('Email sent successfully');
-      }
+        if (error) {
+            console.log(error);
+            res.status(500).send('Error sending email');
+        } else {
+            console.log('Email sent: ' + info.response);
+            res.status(200).send('Email sent successfully');
+        }
     });
-  };
-  
+};
+
 
 app.post('/register', async (req, res) => {
     console.log('i was called, register')
-    const {firstName, lastName, email, password} =req.body
+    const { firstName, lastName, email, password } = req.body
     const verificationToken = crypto.randomBytes(32).toString('hex')
 
     const saltRounds = 10;
@@ -83,40 +83,41 @@ app.post('/register', async (req, res) => {
                 if (row.email === email) {
                     console.log("User already exists. Choose a different username.")
                     stream.destroy()
-                    return res.status(400).json({error: 'User already exists'})
+                    return res.status(400).json({ error: 'User already exists' })
                 }
             })
             .on('end', () => {
-                fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken}\n`)
+                fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken},0,null\n`)
                 console.log("Signup successful!")
                 const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}&email=${email}`
                 sendEmail(firstName, email, verificationLink)
-                return res.status(201).json({firstName, lastName, email, verificationToken})
+                return res.status(201).json({ firstName, lastName, email, verificationToken })
             })
-    } catch(err) {
+    } catch (err) {
         return res.status(500).json(err)
     }
 })
 
-app.post('/login', async(req,res)=> {
+const MAX_ATTEMPTS = 5; // Maximum allowed login attempts
+const LOCK_TIME = 15 * 60 * 1000; // Lock time in milliseconds (e.g., 15 minutes)
+
+app.post('/login', async (req, res) => {
     console.log('i was called, login')
-    const {email, password} = req.body
+    const { email, password } = req.body
     let found = false
-    const user = {
-        firstName: '',
-        lastName: '',
-        email: '',
-        password: ''
+    let user = {
     }
     try {
         const stream = fs.createReadStream(FILE_PATH)
             .pipe(csvParser())
             .on("data", async (row) => {
                 if (row.email === email) {
-                    user.email = row.email
-                    user.password = row.password
-                    user.firstName = row.firstName
-                    user.lastName = row.lastName
+                    user = row
+                    // user.email = row.email
+                    // user.password = row.password
+                    // user.firstName = row.firstName
+                    // user.lastName = row.lastName
+                    // user.loginAttempts = row.loginAttempts
                     // console.log(user)
                     // stream.destroy()
                 }
@@ -124,25 +125,50 @@ app.post('/login', async(req,res)=> {
             .on('end', async () => {
                 // console.log(user, 'end')
                 // console.log(user.email.length)
-                if (user.email.length > 0) { 
+                if (user.email.length > 0) {
                     // console.log(user.email)  
                     // console.log(found)  
+                    if (Number(user.loginAttempts) >= 5) {
+                        if (user.locked == 'null') {
+                            user.locked = Date.now()
+                            user.loginAttempts = Number(user.loginAttempts) + 1
+                            updateCSV(FILE_PATH, user)
+                            return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
+                        } else {
+                            if (Number(Date.now()) - Number(user.locked) >= LOCK_TIME) {
+                                user.locked = 'null'
+                                user.loginAttempts = '0'
+                                updateCSV(FILE_PATH, user)
+                            } else {
+                                user.loginAttempts = Number(user.loginAttempts) + 1
+                                updateCSV(FILE_PATH, user)
+                                return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
+                            }
+                        }
+                    }
                     const result = await bcrypt.compare(password, user.password)
                     if (result) {
                         // found = true
                         // console.log(found)
                         console.log("Login successful!")
-                        const token = jwt.sign({email}, SECRET_KEY, {expiresIn: '1h'})
-                        const {password, ...others} = user
-                        return res.status(200).json({...others, token})
+                        const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' })
+                        user.loginAttempts = '0'
+                        user.locked = 'null'
+                        updateCSV(FILE_PATH, user)
+                        const { password, verificationToken, ...others } = user
+                        return res.status(200).json({ userDetails: others, token })
                     } else {
                         console.log("Invalid email or password.")
-                        return res.status(401).json({error: 'Wrong credentials'})
-                    }               
+                        user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
+                        updateCSV(FILE_PATH, user)
+                        return res.status(401).json({ error: 'Wrong credentials' })
+                    }
                     // res.status(400).json({error: 'Wrong credentials'})
                 } else {
                     console.log("Invalid email or password.")
-                    return res.status(401).json({error: 'Wrong credentials'})
+                    user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
+                    updateCSV(FILE_PATH, user)
+                    return res.status(401).json({ error: 'Wrong credentials' })
                 }
             })
     } catch (error) {
@@ -191,9 +217,9 @@ app.post('/verifyemail', async (req, res) => {
                     updateCSV(FILE_PATH, user);
                     // res.status(200).json({ message: 'Email verified successfully' });
                     // Log the user in after verification
-                    const token = jwt.sign({email}, SECRET_KEY, {expiresIn: '1h'});
-                    const {password, verificationToken, ...others} = user;
-                    return res.status(200).json({userDetails: others, token});
+                    const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' });
+                    const { password, verificationToken, ...others } = user;
+                    return res.status(200).json({ userDetails: others, token });
                 } else {
                     res.status(401).json({ error: 'Invalid verification token or email not found' });
                 }
@@ -234,7 +260,7 @@ app.put('/updateuser', async (req, res) => {
     }
 });
 
-app.get('/', (req,res) => {
+app.get('/', (req, res) => {
     res.send('testingggg')
 })
 
@@ -260,11 +286,13 @@ const updateCSV = (filePath, user) => {
     const indexToUpdate = rows.findIndex(row => row[2] === user.email);
 
     if (indexToUpdate !== -1) {
-        rows[indexToUpdate][0] = user.firstName; // Update the firstName
-        rows[indexToUpdate][1] = user.lastName; // Update the lastName
-        rows[indexToUpdate][2] = user.email; // Update the email
-        rows[indexToUpdate][3] = user.password; // Update the password
-        rows[indexToUpdate][4] = user.isVerified; // Update the isVerified
+        // Dynamically update fields without explicitly specifying them
+        Object.keys(user).forEach((key) => {
+            const columnIndex = rows[0].indexOf(key);
+            if (columnIndex !== -1) {
+                rows[indexToUpdate][columnIndex] = user[key];
+            }
+        });
         const updatedRows = rows.map(row => row.join(','));
 
         // Write the updated rows back to the file
