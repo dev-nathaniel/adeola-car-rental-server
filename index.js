@@ -264,6 +264,26 @@ app.get('/', (req, res) => {
     res.send('testingggg')
 })
 
+// Endpoint to get users from the CSV file
+app.get('/users', (req, res) => {
+    const users = [];
+    
+    fs.createReadStream(FILE_PATH)
+        .pipe(csvParser())
+        .on('data', (row) => {
+            // Push each user row into the users array
+            users.push(row);
+        })
+        .on('end', () => {
+            // Send the users array as a JSON response
+            return res.status(200).json(users);
+        })
+        .on('error', (error) => {
+            console.error(error);
+            return res.status(500).json({ error: 'Error reading the CSV file' });
+        });
+});
+
 const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
