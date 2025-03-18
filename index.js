@@ -89,7 +89,7 @@ app.post('/register', async (req, res) => {
             .on('end', () => {
                 fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken}\n`)
                 console.log("Signup successful!")
-                const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}`
+                const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}&email=${email}`
                 sendEmail(firstName, email, verificationLink)
                 return res.status(201).json({firstName, lastName, email, verificationToken})
             })
@@ -162,6 +162,68 @@ const verifyToken = (req, res, next) => {
     });
 };
 
+app.post('/verifyemail', async (req, res) => {
+    try {
+        const { email, verificationToken } = req.body;
+        let user = {};
+
+        fs.createReadStream(FILE_PATH)
+            .pipe(csv())
+            .on('data', (row) => {
+                if (row.email === email && row.isVerified === 'null') {
+                    user = row;
+                }
+            })
+            .on('end', () => {
+                if (Object.keys(user).length > 0 && user.verificationToken === verificationToken) {
+                    user.isVerified = 'true';
+                    // Assuming there's a function to update the CSV file
+                    updateCSV(FILE_PATH, user);
+                    // res.status(200).json({ message: 'Email verified successfully' });
+                    // Log the user in after verification
+                    const token = jwt.sign(user.email, SECRET_KEY, {expiresIn: '1h'});
+                    const {password, ...others} = user;
+                    return res.status(200).json({...others, token});
+                } else {
+                    res.status(401).json({ error: 'Invalid verification token or email not found' });
+                }
+            });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.put('/updateuser', async (req, res) => {
+    try {
+        const { email, firstName, lastName, password } = req.body;
+        let user = {};
+
+        fs.createReadStream(FILE_PATH)
+            .pipe(csv())
+            .on('data', (row) => {
+                if (row.email === email) {
+                    user = row;
+                }
+            })
+            .on('end', () => {
+                if (Object.keys(user).length > 0) {
+                    user.firstName = firstName;
+                    user.lastName = lastName;
+                    user.password = password;
+                    // Assuming there's a function to update the CSV file
+                    updateCSV(FILE_PATH, user);
+                    res.status(200).json({ message: 'User updated successfully' });
+                } else {
+                    res.status(404).json({ error: 'User not found' });
+                }
+            });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 app.get('/', (req,res) => {
     res.send('testingggg')
 })
@@ -179,3 +241,26 @@ transporter.verify(function (error, success) {
         console.log("Server is ready to take messages")
     }
 })
+
+// Function to update the CSV file
+const updateCSV = (filePath, user) => {
+    const rows = fs.readFileSync(filePath, { encoding: 'utf8' }).split('\n').map(row => row.split(','));
+
+    // Find the row to update
+    const indexToUpdate = rows.findIndex(row => row[2] === user.email);
+
+    if (indexToUpdate !== -1) {
+        rows[indexToUpdate][0] = user.firstName; // Update the firstName
+        rows[indexToUpdate][1] = user.lastName; // Update the lastName
+        rows[indexToUpdate][2] = user.email; // Update the email
+        rows[indexToUpdate][3] = user.password; // Update the password
+        rows[indexToUpdate][4] = user.isVerified; // Update the isVerified
+        const updatedRows = rows.map(row => row.join(','));
+
+        // Write the updated rows back to the file
+        fs.writeFileSync(filePath, updatedRows.join('\n'));
+        console.log('CSV file updated successfully');
+    } else {
+        console.log('User not found in CSV file');
+    }
+};
