@@ -8,13 +8,25 @@ const csvParser = require('csv-parser')
 const bcrypt = require('bcrypt')
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto")
+const mongoose = require("mongoose")
+const User = require('./models/User')
 
-const FILE_PATH = path.join(__dirname, "users.csv")
-
-if (!fs.existsSync(FILE_PATH)) {
-    fs.writeFileSync(FILE_PATH, "firstName,lastName,email,password,isVerified,verificationToken,loginAttempts,locked\n")
-}
 require('dotenv').config()
+
+
+mongoose
+    .connect(process.env.MONGO_URL)
+    .then(() => console.log('DB Connection successful!'))
+    .catch((err) => {
+        console.log(err);
+    });
+
+
+// const FILE_PATH = path.join(__dirname, "users.csv")
+
+// if (!fs.existsSync(FILE_PATH)) {
+//     fs.writeFileSync(FILE_PATH, "firstName,lastName,email,password,isVerified,verificationToken,loginAttempts,locked\n")
+// }
 
 const app = express()
 app.use(bodyparser.json())
@@ -31,6 +43,7 @@ let transporter = nodemailer.createTransport({
     }
 });
 const SECRET_KEY = process.env.JWT_SECRET
+const saltRounds = 10;
 
 const sendEmail = (name, email, verificationLink) => {
 
@@ -72,27 +85,43 @@ const sendEmail = (name, email, verificationLink) => {
 app.post('/register', async (req, res) => {
     console.log('i was called, register')
     const { firstName, lastName, email, password } = req.body
+
     const verificationToken = crypto.randomBytes(32).toString('hex')
 
-    const saltRounds = 10;
     try {
+        const existingUser = await User.findOne({ email })
+        if (existingUser) {
+            return res.status(400).json({ error: 'User already exists. Please choose a different email.' })
+        }
         const hashedPassword = await bcrypt.hash(password, saltRounds)
-        const stream = fs.createReadStream(FILE_PATH)
-            .pipe(csvParser())
-            .on("data", (row) => {
-                if (row.email === email) {
-                    console.log("User already exists. Choose a different username.")
-                    stream.destroy()
-                    return res.status(400).json({ error: 'User already exists' })
-                }
-            })
-            .on('end', () => {
-                fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken},0,null\n`)
-                console.log("Signup successful!")
-                const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}&email=${email}`
-                sendEmail(firstName, email, verificationLink)
-                return res.status(201).json({ firstName, lastName, email, verificationToken })
-            })
+        const newUser = new User({
+            firstname: firstName,
+            lastname: lastName,
+            email,
+            password: hashedPassword,
+            verificationToken,
+            verificationTokenExpires: Date.now() + 24 * 60 * 60 * 1000
+        })
+        const savedUser = await newUser.save()
+        const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}&id=${savedUser._id}`
+        sendEmail(firstName, email, verificationLink)
+        return res.status(201).json({ email: savedUser.email, firstname: savedUser.firstname, lastname: savedUser.lastname, isVerified: savedUser.isVerified })
+        // const stream = fs.createReadStream(FILE_PATH)
+        //     .pipe(csvParser())
+        //     .on("data", (row) => {
+        //         if (row.email === email) {
+        //             console.log("User already exists. Choose a different username.")
+        //             stream.destroy()
+        //             return res.status(400).json({ error: 'User already exists' })
+        //         }
+        //     })
+        //     .on('end', () => {
+        //         fs.appendFileSync(FILE_PATH, `${firstName},${lastName},${email},${hashedPassword},null,${verificationToken},0,null\n`)
+        //         console.log("Signup successful!")
+        //         const verificationLink = `https://adeola-car-rental.netlify.app/verify?token=${verificationToken}&email=${email}`
+        //         sendEmail(firstName, email, verificationLink)
+        //         return res.status(201).json({ firstName, lastName, email, verificationToken })
+        //     })
     } catch (err) {
         return res.status(500).json(err)
     }
@@ -103,74 +132,109 @@ const LOCK_TIME = 15 * 60 * 1000; // Lock time in milliseconds (e.g., 15 minutes
 
 app.post('/login', async (req, res) => {
     console.log('i was called, login')
-    const { email, password } = req.body
+    const { email } = req.body
     let found = false
-    let user = {
-    }
+    // let user = {
+    // }
     try {
-        const stream = fs.createReadStream(FILE_PATH)
-            .pipe(csvParser())
-            .on("data", async (row) => {
-                if (row.email === email) {
-                    user = row
-                    // user.email = row.email
-                    // user.password = row.password
-                    // user.firstName = row.firstName
-                    // user.lastName = row.lastName
-                    // user.loginAttempts = row.loginAttempts
-                    // console.log(user)
-                    // stream.destroy()
-                }
-            })
-            .on('end', async () => {
-                // console.log(user, 'end')
-                // console.log(user.email.length)
-                if (user.email?.length > 0) {
-                    // console.log(user.email)  
-                    // console.log(found)  
-                    if (Number(user.loginAttempts) >= 5) {
-                        if (user.locked == 'null') {
-                            user.locked = Date.now()
-                            user.loginAttempts = Number(user.loginAttempts) + 1
-                            updateCSV(FILE_PATH, user)
-                            return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
-                        } else {
-                            if (Number(Date.now()) - Number(user.locked) >= LOCK_TIME) {
-                                user.locked = 'null'
-                                user.loginAttempts = '0'
-                                updateCSV(FILE_PATH, user)
-                            } else {
-                                user.loginAttempts = Number(user.loginAttempts) + 1
-                                updateCSV(FILE_PATH, user)
-                                return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
-                            }
-                        }
-                    }
-                    const result = await bcrypt.compare(password, user.password)
-                    if (result) {
-                        // found = true
-                        // console.log(found)
-                        console.log("Login successful!")
-                        const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' })
-                        user.loginAttempts = '0'
-                        user.locked = 'null'
-                        updateCSV(FILE_PATH, user)
-                        const { password, verificationToken, ...others } = user
-                        return res.status(200).json({ userDetails: others, token })
-                    } else {
-                        console.log("Invalid email or password.")
-                        user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
-                        updateCSV(FILE_PATH, user)
-                        return res.status(401).json({ error: 'Wrong credentials' })
-                    }
-                    // res.status(400).json({error: 'Wrong credentials'})
-                } else {
-                    console.log("Invalid email or password.")
-                    user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
-                    updateCSV(FILE_PATH, user)
-                    return res.status(401).json({ error: 'Wrong credentials' })
-                }
-            })
+        const user = await User.findOne({ email })
+        if (!user) {
+            return res.status(401).json({ error: "Wrong credentials!" })
+        }
+        if (user.loginAttempts >= MAX_ATTEMPTS) {
+            console.log('login attempts is at 5 and above')
+            if (user.locked == null) {
+                console.log('it is null')
+                user.locked = Date.now()
+                user.loginAttempts = user.loginAttempts + 1
+                user.save()
+                return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', lockedUntil: new Date(user.locked.setTime(user.locked.getTime() + LOCK_TIME)) })
+            } else if (Date.now() - user.locked >= LOCK_TIME) {
+                user.locked = null
+                user.loginAttempts = 0
+                user.save()
+            } else {
+                user.loginAttempts = user.loginAttempts + 1
+                user.save()
+                return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', lockedUntil: new Date(user.locked.setTime(user.locked.getTime() + LOCK_TIME)) })
+            }
+
+        }
+        const passwordMatch = await bcrypt.compare(req.body.password, user.password)
+        if (!passwordMatch) {
+            user.loginAttempts = user.loginAttempts + 1
+            user.save()
+            return res.status(401).json({ error: "Wrong credentials!" })
+        }
+        user.loginAttempts = 0
+        user.locked = null
+        user.save()
+        const accessToken = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: "1h" })
+        const { password, verificationToken, verificationTokenExpires, ...others } = user._doc
+        return res.status(200).json({ ...others, accessToken })
+        // const stream = fs.createReadStream(FILE_PATH)
+        //     .pipe(csvParser())
+        //     .on("data", async (row) => {
+        //         if (row.email === email) {
+        //             user = row
+        //             // user.email = row.email
+        //             // user.password = row.password
+        //             // user.firstName = row.firstName
+        //             // user.lastName = row.lastName
+        //             // user.loginAttempts = row.loginAttempts
+        //             // console.log(user)
+        //             // stream.destroy()
+        //         }
+        //     })
+        //     .on('end', async () => {
+        //         // console.log(user, 'end')
+        //         // console.log(user.email.length)
+        //         if (user.email?.length > 0) {
+        //             // console.log(user.email)  
+        //             // console.log(found)  
+        //             if (Number(user.loginAttempts) >= 5) {
+        //                 if (user.locked == 'null') {
+        //                     user.locked = Date.now()
+        //                     user.loginAttempts = Number(user.loginAttempts) + 1
+        //                     updateCSV(FILE_PATH, user)
+        //                     return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
+        //                 } else {
+        //                     if (Number(Date.now()) - Number(user.locked) >= LOCK_TIME) {
+        //                         user.locked = 'null'
+        //                         user.loginAttempts = '0'
+        //                         updateCSV(FILE_PATH, user)
+        //                     } else {
+        //                         user.loginAttempts = Number(user.loginAttempts) + 1
+        //                         updateCSV(FILE_PATH, user)
+        //                         return res.status(403).json({ error: 'Account locked due to too many failed login attempts. Try again later.', timer: (Number(Date.now()) - Number(user.locked)) });
+        //                     }
+        //                 }
+        //             }
+        //             const result = await bcrypt.compare(password, user.password)
+        //             if (result) {
+        //                 // found = true
+        //                 // console.log(found)
+        //                 console.log("Login successful!")
+        //                 const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' })
+        //                 user.loginAttempts = '0'
+        //                 user.locked = 'null'
+        //                 updateCSV(FILE_PATH, user)
+        //                 const { password, verificationToken, ...others } = user
+        //                 return res.status(200).json({ userDetails: others, token })
+        //             } else {
+        //                 console.log("Invalid email or password.")
+        //                 user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
+        //                 updateCSV(FILE_PATH, user)
+        //                 return res.status(401).json({ error: 'Wrong credentials' })
+        //             }
+        //             // res.status(400).json({error: 'Wrong credentials'})
+        //         } else {
+        //             console.log("Invalid email or password.")
+        //             user.loginAttempts = (Number(user.loginAttempts) + 1).toString()
+        //             updateCSV(FILE_PATH, user)
+        //             return res.status(401).json({ error: 'Wrong credentials' })
+        //         }
+        //     })
     } catch (error) {
         console.log(error)
         return res.status(500).json(error)
@@ -197,63 +261,87 @@ app.get('/verifytoken', verifyToken, (req, res) => {
 
 app.post('/verifyemail', async (req, res) => {
     try {
-        const { email, verificationToken } = req.body;
+        const { id, verificationToken } = req.body;
+        const user = await User.findById(id)
+        if (!user) {
+            return res.status(400).json({ error: "User not found!" })
+        }
+        if (user.isVerified) {
+            return res.status(400).json({error: "User already verified!"})
+        }
+        console.log(user.verificationToken, id)
+        if (user.verificationToken == verificationToken) {
+            user.isVerified = true
+            user.save()
+            const accessToken = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: "1h" })
+            const { password, verificationToken, verificationTokenExpires, ...others } = user._doc
+            return res.status(200).json({ ...others, accessToken })
+        } else {
+            return res.status(401).json({error: "Invalid verification token"})
+        }
         // console.log(email, verificationToken)
-        let user = {};
+        // let user = {};
 
-        fs.createReadStream(FILE_PATH)
-            .pipe(csvParser())
-            .on('data', (row) => {
-                if (row.email === email && row.isVerified === 'null') {
-                    user = row;
-                }
-            })
-            .on('end', () => {
-                // console.log(user)
-                if (Object.keys(user).length > 0 && user.verificationToken === verificationToken) {
-                    console.log(true)
-                    user.isVerified = 'true';
-                    // Assuming there's a function to update the CSV file
-                    updateCSV(FILE_PATH, user);
-                    // res.status(200).json({ message: 'Email verified successfully' });
-                    // Log the user in after verification
-                    const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' });
-                    const { password, verificationToken, ...others } = user;
-                    return res.status(200).json({ userDetails: others, token });
-                } else {
-                    res.status(401).json({ error: 'Invalid verification token or email not found' });
-                }
-            });
+        // fs.createReadStream(FILE_PATH)
+        //     .pipe(csvParser())
+        //     .on('data', (row) => {
+        //         if (row.email === email && row.isVerified === 'null') {
+        //             user = row;
+        //         }
+        //     })
+        //     .on('end', () => {
+        //         // console.log(user)
+        //         if (Object.keys(user).length > 0 && user.verificationToken === verificationToken) {
+        //             console.log(true)
+        //             user.isVerified = 'true';
+        //             // Assuming there's a function to update the CSV file
+        //             updateCSV(FILE_PATH, user);
+        //             // res.status(200).json({ message: 'Email verified successfully' });
+        //             // Log the user in after verification
+        //             const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: '1h' });
+        //             const { password, verificationToken, ...others } = user;
+        //             return res.status(200).json({ userDetails: others, token });
+        //         } else {
+        //             res.status(401).json({ error: 'Invalid verification token or email not found' });
+        //         }
+        //     });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
-app.put('/updateuser', async (req, res) => {
+app.put('/updateuser/:id', async (req, res) => {
     try {
-        const { email, firstName, lastName, password } = req.body;
-        let user = {};
+        const { email, firstName, lastName } = req.body;
+        if (req.body.password) {
+            req.body.password = await bcrypt.hash(req.body.password, saltRounds)
+        }
+        const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, { new: true })
+        const accessToken = jwt.sign({ id: updatedUser._id }, SECRET_KEY, { expiresIn: "1h" })
+        const { password, verificationToken, verificationTokenExpires, ...others } = updatedUser._doc
+        return res.status(200).json({ ...others, accessToken })
+        // let user = {};
 
-        fs.createReadStream(FILE_PATH)
-            .pipe(csv())
-            .on('data', (row) => {
-                if (row.email === email) {
-                    user = row;
-                }
-            })
-            .on('end', () => {
-                if (Object.keys(user).length > 0) {
-                    user.firstName = firstName;
-                    user.lastName = lastName;
-                    user.password = password;
-                    // Assuming there's a function to update the CSV file
-                    updateCSV(FILE_PATH, user);
-                    res.status(200).json({ message: 'User updated successfully' });
-                } else {
-                    res.status(404).json({ error: 'User not found' });
-                }
-            });
+        // fs.createReadStream(FILE_PATH)
+        //     .pipe(csv())
+        //     .on('data', (row) => {
+        //         if (row.email === email) {
+        //             user = row;
+        //         }
+        //     })
+        //     .on('end', () => {
+        //         if (Object.keys(user).length > 0) {
+        //             user.firstName = firstName;
+        //             user.lastName = lastName;
+        //             user.password = password;
+        //             // Assuming there's a function to update the CSV file
+        //             updateCSV(FILE_PATH, user);
+        //             res.status(200).json({ message: 'User updated successfully' });
+        //         } else {
+        //             res.status(404).json({ error: 'User not found' });
+        //         }
+        //     });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Internal server error' });
@@ -265,23 +353,30 @@ app.get('/', (req, res) => {
 })
 
 // Endpoint to get users from the CSV file
-app.get('/users', (req, res) => {
-    const users = [];
-    
-    fs.createReadStream(FILE_PATH)
-        .pipe(csvParser())
-        .on('data', (row) => {
-            // Push each user row into the users array
-            users.push(row);
-        })
-        .on('end', () => {
-            // Send the users array as a JSON response
-            return res.status(200).json(users);
-        })
-        .on('error', (error) => {
-            console.error(error);
-            return res.status(500).json({ error: 'Error reading the CSV file' });
-        });
+app.get('/users', async (req, res) => {
+    try {
+        const users = await User.find()
+        return res.status(200).json(users)
+    } catch (error) {
+        console.log(error)
+        return res.status(500).json(error)
+    }
+    // const users = [];
+
+    // fs.createReadStream(FILE_PATH)
+    //     .pipe(csvParser())
+    //     .on('data', (row) => {
+    //         // Push each user row into the users array
+    //         users.push(row);
+    //     })
+    //     .on('end', () => {
+    //         // Send the users array as a JSON response
+    //         return res.status(200).json(users);
+    //     })
+    //     .on('error', (error) => {
+    //         console.error(error);
+    //         return res.status(500).json({ error: 'Error reading the CSV file' });
+    //     });
 });
 
 const PORT = process.env.PORT || 3000
