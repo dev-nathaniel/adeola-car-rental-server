@@ -123,7 +123,8 @@ app.post('/register', async (req, res) => {
         //         return res.status(201).json({ firstName, lastName, email, verificationToken })
         //     })
     } catch (err) {
-        return res.status(500).json(err)
+        console.log(err)
+        return res.status(500).json({error: "Something went wrong"})
     }
 })
 
@@ -237,7 +238,7 @@ app.post('/login', async (req, res) => {
         //     })
     } catch (error) {
         console.log(error)
-        return res.status(500).json(error)
+        return res.status(500).json({error: "Something went wrong"})
     }
 })
 
@@ -359,7 +360,7 @@ app.get('/users', async (req, res) => {
         return res.status(200).json(users)
     } catch (error) {
         console.log(error)
-        return res.status(500).json(error)
+        return res.status(500).json({error: "Something went wrong"})
     }
     // const users = [];
 
