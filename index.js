@@ -45,7 +45,7 @@ let transporter = nodemailer.createTransport({
 const SECRET_KEY = process.env.JWT_SECRET
 const saltRounds = 10;
 
-const sendEmail = (name, email, verificationLink) => {
+const sendEmail = (name, email, verificationLink, twoFACode) => {
 
 
     let mailOptions = {
@@ -57,12 +57,21 @@ const sendEmail = (name, email, verificationLink) => {
             'Importance': 'high',
             'X-Priority': '1'
         },
-        html: `
+        html: verificationLink ? `
         <div style="background-color: #f0f0f0; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);">
           <h1 style="color: #333; font-weight: bold; margin-top: 0;">Verify Your Email</h1>
           <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
           <p style="font-size: 16px; margin-bottom: 20px;">To complete your registration with Adeola's Car Rental, please verify your email address by clicking the link below:</p>
           <a href="${verificationLink}" style="background-color: #333; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 20px;">Verify Email</a>
+          <p style="font-size: 16px; margin-top: 20px;">If you have any questions or concerns, please don't hesitate to reach out to us.</p>
+          <p style="font-size: 16px;">Best regards,</p>
+          <p style="font-size: 16px;">Adeola's Car Rental Team</p>
+        </div>
+      ` : `
+        <div style="background-color: #f0f0f0; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);">
+          <h1 style="color: #333; font-weight: bold; margin-top: 0;">Verify Your Device</h1>
+          <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
+          <p style="font-size: 16px; margin-bottom: 20px;">Your code is: <strong>${twoFACode}</strong></p>
           <p style="font-size: 16px; margin-top: 20px;">If you have any questions or concerns, please don't hesitate to reach out to us.</p>
           <p style="font-size: 16px;">Best regards,</p>
           <p style="font-size: 16px;">Adeola's Car Rental Team</p>
@@ -84,7 +93,7 @@ const sendEmail = (name, email, verificationLink) => {
 
 app.post('/register', async (req, res) => {
     console.log('i was called, register')
-    const { firstName, lastName, email, password } = req.body
+    const { firstName, lastName, email, password, deviceId, deviceName } = req.body
 
     const verificationToken = crypto.randomBytes(32).toString('hex')
 
@@ -100,6 +109,7 @@ app.post('/register', async (req, res) => {
             email,
             password: hashedPassword,
             verificationToken,
+            devices: [{ deviceId, deviceName }],
             verificationTokenExpires: Date.now() + 24 * 60 * 60 * 1000
         })
         const savedUser = await newUser.save()
@@ -124,7 +134,7 @@ app.post('/register', async (req, res) => {
         //     })
     } catch (err) {
         console.log(err)
-        return res.status(500).json({error: "Something went wrong"})
+        return res.status(500).json({ error: "Something went wrong" })
     }
 })
 
@@ -133,7 +143,7 @@ const LOCK_TIME = 15 * 60 * 1000; // Lock time in milliseconds (e.g., 15 minutes
 
 app.post('/login', async (req, res) => {
     console.log('i was called, login')
-    const { email } = req.body
+    const { email, deviceId } = req.body
     let found = false
     // let user = {
     // }
@@ -167,9 +177,33 @@ app.post('/login', async (req, res) => {
             user.save()
             return res.status(401).json({ error: "Wrong credentials!" })
         }
+        // Check if the device is recognized
+        const knownDevice = user.devices.find((device) => device.deviceId === deviceId);
+
+        if (!knownDevice) {
+            // Generate 2FA code
+            const code = crypto.randomInt(100000, 999999).toString();
+            user.twoFACode = code;
+            user.twoFAExpires = Date.now() + 10 * 60 * 1000; // Code expires in 10 minutes
+            await user.save();
+
+            // Send 2FA code via email
+            sendEmail(user.firstname, user.email, null, code);
+            const { password, verificationToken, verificationTokenExpires, twoFACode, twoFAExpires, ...others } = user._doc
+
+            return res.status(200).json({
+                ...others,
+                message: 'New device detected. Please verify with the 2FA code sent to your email.'
+            });
+        }
+
+        // Update last used timestamp
+        knownDevice.lastUsed = Date.now();
+        // await user.save();
+
         user.loginAttempts = 0
         user.locked = null
-        user.save()
+        await user.save()
         const accessToken = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: "1h" })
         const { password, verificationToken, verificationTokenExpires, ...others } = user._doc
         return res.status(200).json({ ...others, accessToken })
@@ -238,7 +272,7 @@ app.post('/login', async (req, res) => {
         //     })
     } catch (error) {
         console.log(error)
-        return res.status(500).json({error: "Something went wrong"})
+        return res.status(500).json({ error: "Something went wrong" })
     }
 })
 
@@ -268,17 +302,17 @@ app.post('/verifyemail', async (req, res) => {
             return res.status(400).json({ error: "User not found!" })
         }
         if (user.isVerified) {
-            return res.status(400).json({error: "User already verified!"})
+            return res.status(400).json({ error: "User already verified!" })
         }
         console.log(user.verificationToken, id)
         if (user.verificationToken == verificationToken) {
             user.isVerified = true
             user.save()
             const accessToken = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: "1h" })
-            const { password, verificationToken, verificationTokenExpires, ...others } = user._doc
+            const { password, verificationToken, verificationTokenExpires, twoFACode, twoFAExpires, ...others } = user._doc
             return res.status(200).json({ ...others, accessToken })
         } else {
-            return res.status(401).json({error: "Invalid verification token"})
+            return res.status(401).json({ error: "Invalid verification token" })
         }
         // console.log(email, verificationToken)
         // let user = {};
@@ -320,7 +354,7 @@ app.put('/updateuser/:id', async (req, res) => {
         }
         const updatedUser = await User.findByIdAndUpdate(req.params.id, req.body, { new: true })
         const accessToken = jwt.sign({ id: updatedUser._id }, SECRET_KEY, { expiresIn: "1h" })
-        const { password, verificationToken, verificationTokenExpires, ...others } = updatedUser._doc
+        const { password, verificationToken, verificationTokenExpires, twoFACode, twoFAExpires, ...others } = updatedUser._doc
         return res.status(200).json({ ...others, accessToken })
         // let user = {};
 
@@ -360,7 +394,7 @@ app.get('/users', async (req, res) => {
         return res.status(200).json(users)
     } catch (error) {
         console.log(error)
-        return res.status(500).json({error: "Something went wrong"})
+        return res.status(500).json({ error: "Something went wrong" })
     }
     // const users = [];
 
