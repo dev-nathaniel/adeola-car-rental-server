@@ -346,6 +346,36 @@ app.post('/verifyemail', async (req, res) => {
     }
 });
 
+app.post('/verifydevice', async (req, res) => {
+    try {
+        const { id, code, deviceId, deviceName } = req.body;
+        const user = await User.findById(id)
+        if (!user) {
+            return res.status(400).json({ error: "User not found!" })
+        }
+
+        if (user.twoFACode !== code) {
+            return res.status(401).json({ error: 'Invalid 2FA code' });
+        }
+        // console.log(user.verificationToken, id)
+        // Add new device to recognized devices
+        user.devices.push({ deviceId, deviceName, lastUsed: Date.now() });
+        user.twoFACode = null;
+        user.twoFAExpires = null;
+        await user.save();
+
+
+
+        const accessToken = jwt.sign({ id: user._id }, SECRET_KEY, { expiresIn: "1h" })
+        const { password, verificationToken, verificationTokenExpires, twoFACode, twoFAExpires, ...others } = user._doc
+        return res.status(200).json({ ...others, accessToken })
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
 app.put('/updateuser/:id', async (req, res) => {
     try {
         const { email, firstName, lastName } = req.body;
