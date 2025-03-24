@@ -483,7 +483,7 @@ app.get('/bookings', verifyToken, async (req, res) => {
         }
 
         const bookings = await Booking.find(filter); // Populate user and car details
-        return res.status(200).json(bookings._doc);
+        return res.status(200).json(bookings);
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Something went wrong while fetching bookings' });
