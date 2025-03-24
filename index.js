@@ -545,7 +545,7 @@ app.post('/forgot-password', async (req, res) => {
         user.resetTokenExpires = Date.now() + 3600000; // Token valid for 1 hour
         await user.save();
 
-        const resetLink = `https://adeola-car-rental.netlify.app/reset-password?token=${resetToken}&id=${user._id}`;
+        const resetLink = `https://adeola-car-rental.netlify.app/resetpassword?token=${resetToken}&id=${user._id}`;
         sendEmail(user.firstname, email, null, null, resetLink); // Send the reset link via email
 
         return res.status(200).json({ message: 'Password reset link sent to your email' });
