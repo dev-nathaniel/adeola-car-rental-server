@@ -23,7 +23,11 @@ const UserSchema = new mongoose.Schema(
         twoFACode: { type: String },
         twoFAExpires: { type: Date },
         loginAttempts: { type: Number, default: 0 },
-        locked: { type: Date, default: null }
+        locked: { type: Date, default: null },
+
+        // Password reset fields
+        resetToken: { type: String }, // Token for password reset
+        resetTokenExpires: { type: Date } // Expiration date for the reset token
     },
     { timestamps: true }
 );

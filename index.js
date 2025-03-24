@@ -46,14 +46,13 @@ let transporter = nodemailer.createTransport({
 const SECRET_KEY = process.env.JWT_SECRET
 const saltRounds = 10;
 
-const sendEmail = (name, email, verificationLink, twoFACode) => {
-
+const sendEmail = (name, email, verificationLink, twoFACode, resetLink) => {
 
     let mailOptions = {
         from: '"No reply" <adebayoolowofoyeku@gmail.com>',
         to: email,
         //   replyTo: email, // Added replyTo field to allow the recipient to reply directly to the sender
-        subject: 'EMAIL VERIFICATION',
+        subject: verificationLink ? 'EMAIL VERIFICATION' : resetLink ? 'PASSWORD RESET' : '2FA VERIFICATION',
         headers: {
             'Importance': 'high',
             'X-Priority': '1'
@@ -64,6 +63,16 @@ const sendEmail = (name, email, verificationLink, twoFACode) => {
           <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
           <p style="font-size: 16px; margin-bottom: 20px;">To complete your registration with Adeola's Car Rental, please verify your email address by clicking the link below:</p>
           <a href="${verificationLink}" style="background-color: #333; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 20px;">Verify Email</a>
+          <p style="font-size: 16px; margin-top: 20px;">If you have any questions or concerns, please don't hesitate to reach out to us.</p>
+          <p style="font-size: 16px;">Best regards,</p>
+          <p style="font-size: 16px;">Adeola's Car Rental Team</p>
+        </div>
+      ` : resetLink ? `
+        <div style="background-color: #f0f0f0; padding: 20px; border: 1px solid #ddd; border-radius: 10px; box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);">
+          <h1 style="color: #333; font-weight: bold; margin-top: 0;">Reset Your Password</h1>
+          <p style="font-size: 18px; margin-bottom: 20px;">Dear ${name},</p>
+          <p style="font-size: 16px; margin-bottom: 20px;">You have requested a password reset. Please click the link below to reset your password:</p>
+          <a href="${resetLink}" style="background-color: #333; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 20px;">Reset Password</a>
           <p style="font-size: 16px; margin-top: 20px;">If you have any questions or concerns, please don't hesitate to reach out to us.</p>
           <p style="font-size: 16px;">Best regards,</p>
           <p style="font-size: 16px;">Adeola's Car Rental Team</p>
@@ -517,6 +526,55 @@ app.put('/bookings/:bookingId/status', verifyToken, async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'Something went wrong while updating the booking status' });
+    }
+});
+
+// Endpoint to request a password reset link
+app.post('/forgot-password', async (req, res) => {
+    const { email } = req.body;
+
+    try {
+        const user = await User.findOne({ email });
+        if (!user) {
+            return res.status(404).json({ error: 'User not found' });
+        }
+
+        // Generate a password reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        user.resetToken = resetToken;
+        user.resetTokenExpires = Date.now() + 3600000; // Token valid for 1 hour
+        await user.save();
+
+        const resetLink = `https://adeola-car-rental.netlify.app/reset-password?token=${resetToken}&id=${user._id}`;
+        sendEmail(user.firstname, email, null, null, resetLink); // Send the reset link via email
+
+        return res.status(200).json({ message: 'Password reset link sent to your email' });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Something went wrong while sending the password reset link' });
+    }
+});
+
+// Endpoint to reset the password
+app.post('/reset-password', async (req, res) => {
+    const { token, id, newPassword } = req.body;
+
+    try {
+        const user = await User.findById(id);
+        if (!user || user.resetToken !== token || user.resetTokenExpires < Date.now()) {
+            return res.status(400).json({ error: 'Invalid or expired token' });
+        }
+
+        // Hash the new password
+        user.password = await bcrypt.hash(newPassword, saltRounds);
+        user.resetToken = undefined; // Clear the reset token
+        user.resetTokenExpires = undefined; // Clear the expiration
+        await user.save();
+
+        return res.status(200).json({ message: 'Password has been reset successfully' });
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Something went wrong while resetting the password' });
     }
 });
 
