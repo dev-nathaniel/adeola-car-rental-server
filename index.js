@@ -492,6 +492,34 @@ app.get('/bookings', verifyToken, async (req, res) => {
     }
 });
 
+// Endpoint to edit the status of a booking
+app.put('/bookings/:bookingId/status', verifyToken, async (req, res) => {
+    const { bookingId } = req.params; // Get the bookingId from the request parameters
+    const { status } = req.body; // Get the new status from the request body
+
+    try {
+        // Validate the status if needed (e.g., check against allowed statuses)
+        if (!status) {
+            return res.status(400).json({ error: 'Status is required' });
+        }
+
+        const updatedBooking = await Booking.findByIdAndUpdate(
+            bookingId,
+            { status }, // Update the status
+            { new: true } // Return the updated booking
+        );
+
+        if (!updatedBooking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        return res.status(200).json(updatedBooking);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Something went wrong while updating the booking status' });
+    }
+});
+
 const PORT = process.env.PORT || 3000
 
 app.listen(PORT, () => {
