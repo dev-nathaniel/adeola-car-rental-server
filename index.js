@@ -472,9 +472,9 @@ app.post('/book', verifyToken, async (req, res) => {
 });
 
 // Endpoint to fetch bookings
-app.get('/bookings/:userId', async (req, res) => {
+app.get('/bookings', verifyToken, async (req, res) => {
     const { status } = req.query; // Get the status from query parameters
-    const { userId } = req.params; // Corrected variable name to match the parameter name
+    const { userId } = req.user.id; // Corrected variable name to match the parameter name
 
     try {
         let filter = { userId }; // Filter by userId
