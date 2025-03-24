@@ -10,6 +10,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto")
 const mongoose = require("mongoose")
 const User = require('./models/User')
+const Booking = require('./models/Booking')
 
 require('dotenv').config()
 
@@ -442,6 +443,50 @@ app.get('/users', async (req, res) => {
     //         console.error(error);
     //         return res.status(500).json({ error: 'Error reading the CSV file' });
     //     });
+});
+
+// Endpoint to create a booking
+app.post('/book', verifyToken, async (req, res) => {
+    const { carId, startDate, endDate, locationReturn, locationPickUp, protectionId, extraId, upgradeId } = req.body;
+    console.log(req.user)
+    try {
+        const newBooking = new Booking({
+            userId: req.user,
+            carId,
+            startDate,
+            endDate,
+            locationPickUp,
+            locationReturn,
+            ...(protectionId ? { protectionId } : {}),
+            ...(extraId ? { extraId } : {}),
+            ...(upgradeId ? { upgradeId } : {})
+        });
+
+        const savedBooking = await newBooking.save();
+        return res.status(201).json(savedBooking);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Something went wrong while creating the booking' });
+    }
+});
+
+// Endpoint to fetch bookings
+app.get('/bookings/:userId', async (req, res) => {
+    const { status } = req.query; // Get the status from query parameters
+    const { userId } = req.params; // Corrected variable name to match the parameter name
+
+    try {
+        let filter = { userId }; // Filter by userId
+        if (status) {
+            filter.status = status; // Filter by status if provided
+        }
+
+        const bookings = await Booking.find(filter); // Populate user and car details
+        return res.status(200).json(bookings._doc);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({ error: 'Something went wrong while fetching bookings' });
+    }
 });
 
 const PORT = process.env.PORT || 3000
