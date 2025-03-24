@@ -451,7 +451,7 @@ app.post('/book', verifyToken, async (req, res) => {
     console.log(req.user)
     try {
         const newBooking = new Booking({
-            userId: req.user,
+            userId: req.user.id,
             carId,
             startDate,
             endDate,
