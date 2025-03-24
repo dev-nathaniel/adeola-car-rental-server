@@ -447,7 +447,7 @@ app.get('/users', async (req, res) => {
 
 // Endpoint to create a booking
 app.post('/book', verifyToken, async (req, res) => {
-    const { carId, startDate, endDate, locationReturn, locationPickUp, protectionId, extraId, upgradeId, status } = req.body;
+    const { carId, startDate, endDate, locationReturn, locationPickUp, protectionId, extraId, upgradeId, status, price } = req.body;
     // console.log(req.user)
     try {
         const newBooking = new Booking({
@@ -458,6 +458,7 @@ app.post('/book', verifyToken, async (req, res) => {
             endDate,
             locationPickUp,
             locationReturn,
+            price,
             ...(protectionId ? { protectionId } : {}),
             ...(extraId ? { extraId } : {}),
             ...(upgradeId ? { upgradeId } : {})

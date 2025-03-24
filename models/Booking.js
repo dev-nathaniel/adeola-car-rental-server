@@ -43,6 +43,10 @@ const bookingSchema = new mongoose.Schema({
         required: true,
         enum: ['upcoming', 'completed', 'cancelled']
     },
+    price: {
+        type: String,
+        required: true
+    }
 });
 
 // Create the Booking model
